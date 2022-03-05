@@ -3,23 +3,33 @@ import dlib
 import argparse
 import numpy as np
 import scipy
+from imutils import face_utils
 
 def facial_landmark(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # https://learnopencv.com/face-detection-opencv-dlib-and-deep-learning-c-python/
-    hogFaceDetector = dlib.get_frontal_face_detector()
-    faceRects = hogFaceDetector(img, 0)
-    bboxes = []
-    for faceRect in faceRects:
-        x1 = faceRect.left()
-        y1 = faceRect.top()
-        x2 = faceRect.right()
-        y2 = faceRect.bottom()
-        cvRect = [int(x1), int(y1), int(x2), int(y2)]
-        bboxes.append(cvRect)
-        cv2.rectangle(img, (cvRect[0], cvRect[1]), (cvRect[2], cvRect[3])
-        , (0, 255, 0), int(round(img.shape[0]/150)), 4)
-    return img, bboxes
+    detector = dlib.get_frontal_face_detector()
+    PREDICTOR_PATH = './shape_predictor_68_face_landmarks.dat'
+    predictor = dlib.shape_predictor(PREDICTOR_PATH)
+    # detect faces in the grayscale frame
+    faceRects = detector(gray, 0)
+    face_pts = []
+    if len(faceRects) > 0:
+        for faceRect in faceRects:
+            # compute the bounding box of the face and draw it on the frame
+            (bX, bY, bW, bH) = face_utils.rect_to_bb(faceRect)
+            cv2.rectangle(img, (bX, bY), (bX + bW, bY + bH), (0, 255, 0), 1)
+            # determine the facial landmarks for the face region, then
+            # convert the facial landmark (x, y)-coordinates to a NumPy array
+            shape = predictor(gray, faceRect)
+            shape = face_utils.shape_to_np(shape)
+            # for (i, (x, y)) in enumerate(shape):
+            for (x, y) in shape:
+                cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
+                face_pts.append((x, y))
+    else:
+        print("ERROR: NO FACES FOUND!!!")
+
+    return img, face_pts
 
 # Check if a point is inside a rectangle
 def rect_contains(rect, point) :
@@ -64,9 +74,8 @@ def delauney_triangle(img, faces):
                 res.append(np.array(indices))
     return res
 
-def triangulation_warping(src, src_tri, dst_tri):
+def triangulation_warping(src, dst, src_tri, dst_tri, dst_hull):
     # compute Barycentric coordinates for each triangle in the destination
-    src_rect = cv2.boundingRect(np.float32([src_tri]))
     dst_rect = cv2.boundingRect(np.float32([dst_tri]))
     x, y, w, h = dst_rect
     tri_coord_x, tri_coord_y = np.mgrid[x:x+w, y:y+h].reshape(2,-1)
@@ -96,6 +105,8 @@ def triangulation_warping(src, src_tri, dst_tri):
 
 def U(r):
     res = (r**2) * np.log(r**2)
+    if np.isnan(res):
+        res = 0
     return res
 
 def tps_model(src_1d, dst_pts):
@@ -104,11 +115,12 @@ def tps_model(src_1d, dst_pts):
     P_mat = np.zeros((p, 3), np.float32) # size: p x 3
     for i in range(p):
         for j in range(p):
-            K_mat[i, j] = U(np.linalg.norm(dst_pts[i, i] - dst_pts[j, j]))
-    P_mat = np.hstack((P_mat, np.ones((dst_pts, 1))))
+            K_mat[i, j] = U(np.linalg.norm(dst_pts[i, :] - dst_pts[j, :]))
+
+    P_mat = np.hstack((dst_pts, np.ones((p, 1))))
     
     K_P_Pt_mat_row1 = np.hstack((K_mat, P_mat))
-    K_P_Pt_mat_row2 = np.hstack((P_mat.T, np.zeros((P_mat.T.shape[0], P_mat.T.shape[1]))))
+    K_P_Pt_mat_row2 = np.hstack((P_mat.T, np.zeros((3, 3))))
     K_P_Pt_mat = np.vstack((K_P_Pt_mat_row1, K_P_Pt_mat_row2))
     lamda = 0.0001
     A_mat = K_P_Pt_mat + lamda * np.identity((p + 3))
@@ -127,47 +139,76 @@ def f(x_param, y_param, p, dst_pts, img_warp_row, img_warp_col):
     f2 += a1_y + ax_y * img_warp_row + ay_y * img_warp_col
     return f1, f2
 
-def thin_plate_spline_warping(src, dst, src_pts, dst_pts):
+def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
     src_pts = np.array(src_pts)
     dst_pts = np.array(dst_pts)
     p = len(src_pts)
     r = cv2.boundingRect(np.float32([dst_pts]))
     mask = np.zeros((r[3], r[2], 3), np.float32)
+
+    points2_t = []
+
+    for i in range(len(dst_hull)):
+        points2_t.append(((dst_hull[i][0]-r[0]),(dst_hull[i][1]-r[1])))
+
+    cv2.fillConvexPoly(mask, np.int32(points2_t), (1.0, 1.0, 1.0), 16, 0)
+
     warped_img = np.copy(mask)
 
-    est_params_x = tps_model(src[:, 0], dst_pts)
-    est_params_y = tps_model(src[:, 1], dst_pts)
+    est_params_x = tps_model(src_pts[:, 0], dst_pts)
+    est_params_y = tps_model(src_pts[:, 1], dst_pts)
     for i in range(warped_img.shape[1]):
         for j in range(warped_img.shape[0]):
             f1, f2 = f(est_params_x, est_params_y, p, dst_pts, i + r[0], j + r[1])
-            warped_img[j, i] = src[f2, f1, :] 
-    warped_img *= mask
+            y = min(max(int(f1), 0), warped_img.shape[1]-1)
+            x = min(max(int(f2), 0), warped_img.shape[0]-1)
+            warped_img[j, i] = src[y, x, :] 
+    warped_img = warped_img * mask
     dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] * ( (1.0, 1.0, 1.0) - mask )
     dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] + warped_img
     return dst
 
-def traditional(src, dst, src_pts, dst_pts, method):
+def traditional(src, dst, src_face, dst_face, method):
+    dst_copy = np.copy(dst)
+    dst_face = np.array(dst_face)
+    hull = cv2.convexHull(np.float32([dst_face]), returnPoints=False)
+    src_hull = []
+    dst_hull = []
+    for h in hull:
+        src_hull.append(src_face[int(h)])
+        dst_hull.append(dst_face[int(h)])
+
     if method == 'tri':
-        res = triangulation_warping(src, src_pts, dst_pts)
+        warped_img = triangulation_warping(src, dst, src_face, dst_face, dst_hull)
+        cv2.imshow('w', warped_img)
+        cv2.waitKey(0)
     elif method == 'tps':
-        res = thin_plate_spline_warping(src, dst, src_pts, dst_pts)
-    return res
+        warped_img = thin_plate_spline_warping(src, dst_copy, src_face, dst_face, dst_hull)
+        cv2.imshow('w', warped_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    return warped_img
 
 def main():
-    video_path = './TestSet/Test2.mp4'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--method', default='tps', type=str, help='tri, tps')
+    Args = parser.parse_args()
+    method = Args.method
+
+    video_path = './TestSet/Test1.mp4'
     face_img_path = './TestSet/Rambo.jpg'
     cap = cv2.VideoCapture(video_path)
     face_img = cv2.imread(face_img_path)
     face1, face1_pts = facial_landmark(face_img)
-
     if (cap.isOpened()== False): 
         print("Error opening video file")
     while(cap.isOpened()):
         ret, frame = cap.read()
         if ret == True:
             face2, face2_pts = facial_landmark(frame)
-            res = traditional(face1, face1_pts, face2, face2_pts)
-            cv2.imshow('r', res)
+            res = traditional(face_img, frame, face1_pts, face2_pts, method)
+            # cv2.imshow('r', res)
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 break
         else:
