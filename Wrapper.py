@@ -29,7 +29,7 @@ def facial_landmark(img):
     else:
         print("ERROR: NO FACES FOUND!!!")
 
-    return img, face_pts
+    return (bX, bY, bW, bH), face_pts
 
 # Check if a point is inside a rectangle
 def rect_contains(rect, point) :
@@ -133,11 +133,11 @@ def f(x_param, y_param, p, dst_pts, img_warp_row, img_warp_col):
     ax_y, ay_y, a1_y = y_param[p], y_param[p+1], y_param[p+2]
     f1, f2 = 0, 0
     for i in range(p):
-        f1 += x_param[i] * U(np.linalg.norm(dst_pts[i] - img_warp_row))
-        f2 += y_param[i] * U(np.linalg.norm(dst_pts[i] - img_warp_col))
-    f1 += a1_x + ax_x * img_warp_row + ay_x * img_warp_col
-    f2 += a1_y + ax_y * img_warp_row + ay_y * img_warp_col
-    return f1, f2
+        f1 += x_param[i] * U(np.linalg.norm(dst_pts[i, :] - [img_warp_row, img_warp_col]))
+        f2 += y_param[i] * U(np.linalg.norm(dst_pts[i, :] - [img_warp_row, img_warp_col]))
+    x = a1_x + ax_x * img_warp_row + ay_x * img_warp_col + f1
+    y = a1_y + ax_y * img_warp_row + ay_y * img_warp_col + f2
+    return x, y
 
 def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
     src_pts = np.array(src_pts)
@@ -157,15 +157,24 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
 
     est_params_x = tps_model(src_pts[:, 0], dst_pts)
     est_params_y = tps_model(src_pts[:, 1], dst_pts)
+
+    a1_x = est_params_x[p+2]
+    ay_x = est_params_x[p+1]
+    ax_x = est_params_x[p]
+
+    a1_y = est_params_y[p+2]
+    ay_y = est_params_y[p+1]
+    ax_y = est_params_y[p]
     for i in range(warped_img.shape[1]):
         for j in range(warped_img.shape[0]):
-            f1, f2 = f(est_params_x, est_params_y, p, dst_pts, i + r[0], j + r[1])
-            y = min(max(int(f1), 0), warped_img.shape[1]-1)
-            x = min(max(int(f2), 0), warped_img.shape[0]-1)
+            x, y = f(est_params_x, est_params_y, p, dst_pts, i + r[0], j + r[1])
+            x = min(max(int(x), 0), src.shape[1]-1)
+            y = min(max(int(y), 0), src.shape[0]-1)
             warped_img[j, i] = src[y, x, :] 
     warped_img = warped_img * mask
     dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] * ( (1.0, 1.0, 1.0) - mask )
     dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] + warped_img
+    
     return dst
 
 def traditional(src, dst, src_face, dst_face, method):
@@ -184,11 +193,26 @@ def traditional(src, dst, src_face, dst_face, method):
         cv2.waitKey(0)
     elif method == 'tps':
         warped_img = thin_plate_spline_warping(src, dst_copy, src_face, dst_face, dst_hull)
-        cv2.imshow('w', warped_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # cv2.imshow('w', warped_img)
+        # cv2.waitKey(0)
+    output = blend(warped_img, dst, dst_hull)
+    # cv2.destroyAllWindows()
 
-    return warped_img
+    return output
+
+def blend(warped_img, dst_img, dst_hull):
+    hull = []
+    for h in dst_hull:
+        hull.append((h[0], h[1]))
+    
+    mask = np.zeros_like(dst_img)
+    cv2.fillConvexPoly(mask, np.int32(hull), (255, 255, 255))
+    r = cv2.boundingRect(np.float32([hull]))
+    center = ((r[0] + int(r[2]/2), r[1] + int(r[3]/2)))
+
+    output = cv2.seamlessClone(np.uint8(warped_img), dst_img, mask, center, cv2.NORMAL_CLONE)
+
+    return output
 
 def main():
     parser = argparse.ArgumentParser()
@@ -200,15 +224,17 @@ def main():
     face_img_path = './TestSet/Rambo.jpg'
     cap = cv2.VideoCapture(video_path)
     face_img = cv2.imread(face_img_path)
-    face1, face1_pts = facial_landmark(face_img)
+    (x, y, w, h), face1_pts = facial_landmark(face_img)
+    face1_crop = face_img[y:y+h, x:x+w]
     if (cap.isOpened()== False): 
         print("Error opening video file")
     while(cap.isOpened()):
         ret, frame = cap.read()
         if ret == True:
-            face2, face2_pts = facial_landmark(frame)
+            (x, y, w, h), face2_pts = facial_landmark(frame)
+            face2_crop = frame[y:y+h, x:x+w]
             res = traditional(face_img, frame, face1_pts, face2_pts, method)
-            # cv2.imshow('r', res)
+            cv2.imshow('r', res)
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 break
         else:
