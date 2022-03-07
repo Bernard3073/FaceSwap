@@ -5,6 +5,11 @@ import numpy as np
 from scipy.interpolate import interp2d
 from imutils import face_utils
 
+def visualize_img(img):
+    cv2.imshow('t', img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
 def facial_landmark(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     detector = dlib.get_frontal_face_detector()
@@ -28,8 +33,8 @@ def facial_landmark(img):
                 face_pts.append((x, y))
     else:
         print("ERROR: NO FACES FOUND!!!")
-
-    return (bX, bY, bW, bH), face_pts
+    
+    return len(faceRects), face_pts
 
 # Check if a point is inside a rectangle
 def rect_contains(box, pt) :
@@ -42,16 +47,16 @@ def rect_contains(box, pt) :
     else:
         return False
 
-def delaunay_triangle(img, faces):
+def delaunay_triangle(img, points):
     box = (0, 0, img.shape[1], img.shape[0])
     subdiv = cv2.Subdiv2D(box) 
     # insert points into subdiv
-    for f in faces:
-        subdiv.insert(tuple(f))
+    for p in points:
+        subdiv.insert(tuple(p))
     triangle_list = subdiv.getTriangleList()
 
     face_pts = dict()
-    for i, j in enumerate(faces):
+    for i, j in enumerate(points):
         k = tuple(j)
         face_pts[k] = i
 
@@ -73,7 +78,7 @@ def delaunay_triangle(img, faces):
                 res.append(np.array(indices))
     return res
 
-def triangulation_model(src, src_tri, dst_tri):
+def triangulation_model(src, src_tri, dst_tri, size):
 
     t = dst_tri
 
@@ -143,51 +148,163 @@ def triangulation_model(src, src_tri, dst_tri):
     # src_x, src_y, src_z = src_new[:, 0], src_new[:, 1], src_new[:, 2]
     # src_x /= src_z
     # src_y /= src_z
-    
+
     # copy back the value of pixel at (x_A, y_A) to the target location
+    dst= np.zeros((size[1], size[0], 3), np.uint8)
     xs = np.linspace(0, src.shape[1], num=src.shape[1], endpoint=False)
     ys = np.linspace(0, src.shape[0], num=src.shape[0], endpoint=False)
     blue, green, red = src[:, :, 0], src[:, :, 1], src[:, :, 2]
     b_eq = interp2d(xs, ys, blue, kind='cubic')
     g_eq = interp2d(xs, ys, green, kind='cubic')
     r_eq = interp2d(xs, ys, red, kind='cubic')
-    dst= np.zeros((dst_rect[3], dst_rect[2], 3), np.uint8)
     for ind, (x, y) in enumerate(zip(src_x.flat, src_y.flat)):
         b = b_eq(x, y)[0]
         g = g_eq(x, y)[0]
         r = r_eq(x, y)[0]
-        dst[int(dst_y[ind-2]), int(dst_x[ind-2])] = (b, g, r)
+        dst[int(dst_y[ind]), int(dst_x[ind])] = (b, g, r)
     return dst
 
+# def warpTriangle(src, dst_copy, del_tri1, del_tri2) :
+
+    # # find bbox for each triangles
+    # b_rect1 = cv2.boundingRect(np.float32([del_tri1]))
+    # b_rect2 = cv2.boundingRect(np.float32([del_tri2]))
+    # del_tri_rect1 = []
+    # del_tri_rect2 = []
+    # for k in range(3):
+    #     del_tri_rect1.append((del_tri1[k][0] - b_rect1[0], del_tri1[k][1] - b_rect1[1]))
+    #     del_tri_rect2.append((del_tri2[k][0] - b_rect2[0], del_tri2[k][1] - b_rect2[1]))
+
+    # mask = np.zeros((b_rect2[3], b_rect2[2], 3), np.float32)
+    # cv2.fillConvexPoly(mask, np.int32(del_tri_rect2), (1.0, 1.0, 1.0), 16, 0)
+
+    # src_rect = src[b_rect1[1]:b_rect1[1]+b_rect1[3], b_rect1[0]:b_rect1[0]+b_rect1[2]]
+    # dst_rect = np.zeros((b_rect2[3], b_rect2[2]), src_rect.dtype)
+
+    # dst_rect = triangulation_model(src, del_tri_rect1, del_tri_rect2)
+    # dst_rect = dst_rect * mask
+    # dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] * ( (1.0, 1.0, 1.0) - mask )
+    # dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] + dst_rect
+
+def warpTriangle(img1, img2, del_tri1, del_tri2):
+    # Find bounding rectangle for each triangle
+    b_rect1 = cv2.boundingRect(np.float32([del_tri1]))
+    b_rect2 = cv2.boundingRect(np.float32([del_tri2]))
+    # Offset points by left top corner of the respective rectangles
+    del_tri_rect1 = []
+    del_tri_rect2 = []
+
+    for r1, r2 in zip(del_tri1, del_tri2):
+        del_tri_rect1.append((r1[0] - b_rect1[0], (r1[1] - b_rect1[1])))
+        del_tri_rect2.append((r2[0] - b_rect2[0], (r2[1] - b_rect2[1])))
+
+    # Get mask by filling triangle
+    mask = np.zeros((b_rect2[3], b_rect2[2], 3), np.float32)
+    # print("Mask shape = "+str(mask.shape))
+
+    cv2.fillConvexPoly(mask, np.int32(del_tri_rect2), (1.0, 1.0, 1.0), 16, 0)
+
+    # Apply warpImage to small rectangular patches
+    img1Rect = img1[b_rect1[1]:b_rect1[1] + b_rect1[3], b_rect1[0]:b_rect1[0] + b_rect1[2]]
+    img2Rect = np.zeros((b_rect2[3], b_rect2[2]), dtype=img1Rect.dtype)
+
+    size = (b_rect2[2], b_rect2[3])
+
+    # img2Rect = triangulationWarping(img1Rect, t1Rect, t2Rect, size)
+    img2Rect = triangulation_model(img1Rect, del_tri_rect1, del_tri_rect2, size)
+    # print("img2rect shape =  "+str(img2Rect.shape))
+
+    img2Rect = img2Rect * mask
+
+    # Copy triangular region of the rectangular patch to the output image
+    img2[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = img2[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] * ((1.0, 1.0, 1.0) - mask)
+
+    img2[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = img2[b_rect2[1]
+        :b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] + img2Rect
+
+def triangulationWarping(src, srcTri, dstTri, size, epsilon=0.1):
+
+    t = dstTri
+    s = srcTri
+
+    r2 = cv2.boundingRect(np.float32([t]))
+
+    xleft = r2[0]
+    xright = r2[0] + r2[2]
+    ytop = r2[1]
+    ybottom = r2[1] + r2[3]
+
+    dst_matrix = np.linalg.inv(
+        [[t[0][0], t[1][0], t[2][0]], [t[0][1], t[1][1], t[2][1]], [1, 1, 1]])
+
+    grid = np.mgrid[xleft:xright, ytop:ybottom].reshape(2, -1)
+    # grid 2xN
+    grid = np.vstack((grid, np.ones((1, grid.shape[1]))))
+    # grid 3xN
+    barycoords = np.dot(dst_matrix, grid)
+
+    t = []
+    b = np.all(barycoords > -epsilon, axis=0)
+    a = np.all(barycoords < 1+epsilon, axis=0)
+    for i in range(len(a)):
+        t.append(a[i] and b[i])
+    dst_y = []
+    dst_x = []
+    for i in range(len(t)):
+        if(t[i]):
+            dst_y.append(i % r2[3])
+            dst_x.append(i/r2[3])
+
+    barycoords = barycoords[:, np.all(-epsilon < barycoords, axis=0)]
+    barycoords = barycoords[:, np.all(barycoords < 1+epsilon, axis=0)]
+
+    src_matrix = np.matrix([[s[0][0], s[1][0], s[2][0]], [
+                           s[0][1], s[1][1], s[2][1]], [1, 1, 1]])
+    pts = np.matmul(src_matrix, barycoords)
+
+    xA = pts[0, :]/pts[2, :]
+    yA = pts[1, :]/pts[2, :]
+
+    dst = np.zeros((size[1], size[0], 3), np.uint8)
+
+    i = 0
+    xs = np.linspace(0, src.shape[1], num=src.shape[1], endpoint=False)
+    ys = np.linspace(0, src.shape[0], num=src.shape[0], endpoint=False)
+
+    b = src[:, :, 0]
+    fb = interp2d(xs, ys, b, kind='cubic')
+
+    g = src[:, :, 1]
+    fg = interp2d(xs, ys, g, kind='cubic')
+
+    r = src[:, :, 2]
+    fr = interp2d(xs, ys, r, kind='cubic')
+    for x, y in zip(xA.flat, yA.flat):
+
+        blue = fb(x, y)[0]
+        green = fg(x, y)[0]
+        red = fr(x, y)[0]
+
+        dst[int(dst_y[i]), int(dst_x[i])] = (blue, green, red)
+        i = i+1
+        # print(blue,green, red)
+
+    return dst
+
+    return dst
 def triangulation_warping(src, dst, dst_copy, src_hull, dst_hull):
     # delaunay triangulation for convex hull
     del_tri = delaunay_triangle(dst, dst_hull)
     # apply affine transformation to delaunay triangles
     for dt in del_tri:
+    # for i in range(len(del_tri)):
         del_tri1 = []
         del_tri2 = []
         
         for i in range(3):
             del_tri1.append(src_hull[dt[i]])
             del_tri2.append(dst_hull[dt[i]])
-        # find bbox for each triangles
-        b_rect1 = cv2.boundingRect(np.float32([del_tri1]))
-        b_rect2 = cv2.boundingRect(np.float32([del_tri2]))
-        del_tri_rect1 = []
-        del_tri_rect2 = []
-        for i in range(3):
-            del_tri_rect1.append((del_tri1[i][0] - b_rect1[0], del_tri1[i][1] - b_rect1[1]))
-            del_tri_rect2.append((del_tri2[i][0] - b_rect2[0], del_tri2[i][1] - b_rect2[1]))
-        mask = np.zeros((b_rect2[3], b_rect2[2], 3), np.float32)
-        cv2.fillConvexPoly(mask, np.int32(del_tri_rect2), (1, 1, 1), 16, 0)
-        src_rect = src[b_rect1[1]:b_rect1[1]+b_rect1[3], b_rect1[0]:b_rect1[0]+b_rect1[2]]
-        dst_rect = np.zeros((b_rect2[3], b_rect2[2]), src_rect.dtype)
-
-        dst_rect = triangulation_model(src, del_tri_rect1, del_tri_rect2)
-        dst_rect = dst_rect * mask
-        dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] * ( (1.0, 1.0, 1.0) - mask )
-        dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = dst_copy[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] + dst_rect
-    
+        warpTriangle(src, dst_copy, del_tri1, del_tri2)
     return dst_copy
 
 def U(r):
@@ -259,13 +376,15 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
 
 def traditional(src, dst, src_face, dst_face, method):
     dst_copy = np.copy(dst)
-    dst_face = np.array(dst_face)
-    hull = cv2.convexHull(np.float32([dst_face]), returnPoints=False)
+    hull_idx = cv2.convexHull(np.array(dst_face), returnPoints=False)
     src_hull = []
     dst_hull = []
-    for h in hull:
-        src_hull.append(src_face[int(h)])
-        dst_hull.append(dst_face[int(h)])
+    # for h in hull_idx:
+    #     src_hull.append(src_face[int(h)])
+    #     dst_hull.append(dst_face[int(h)])
+    for i in range(len(hull_idx)):
+        src_hull.append(src_face[int(hull_idx[i])])
+        dst_hull.append(dst_face[int(hull_idx[i])])
     if method == 'tps':
         warped_img = thin_plate_spline_warping(src, dst_copy, src_face, dst_face, dst_hull)
     elif method == 'tri':
@@ -298,15 +417,23 @@ def main():
     face_img_path = './TestSet/Rambo.jpg'
     cap = cv2.VideoCapture(video_path)
     face_img = cv2.imread(face_img_path)
-    (x, y, w, h), face1_pts = facial_landmark(face_img)
-    face1_crop = face_img[y:y+h, x:x+w]
+    # (x, y, w, h), face1_pts = facial_landmark(face_img)
+    # face1_crop = face_img[y:y+h, x:x+w]
+    num_face1, face1_pts = facial_landmark(face_img)
     if (cap.isOpened()== False): 
         print("Error opening video file")
+    count = 0
     while(cap.isOpened()):
+        count += 1
         ret, frame = cap.read()
         if ret == True:
-            (x, y, w, h), face2_pts = facial_landmark(frame)
-            face2_crop = frame[y:y+h, x:x+w]
+            # (x, y, w, h), face2_pts = facial_landmark(frame)
+            # face2_crop = frame[y:y+h, x:x+w]
+            num_face2, face2_pts = facial_landmark(frame)
+            if(num_face2 == 0):
+                continue
+            else:
+                print(count)
             res = traditional(face_img, frame, face1_pts, face2_pts, method)
             cv2.imshow('r', res)
             if cv2.waitKey(25) & 0xFF == ord('q'):
