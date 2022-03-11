@@ -4,6 +4,8 @@ import argparse
 import numpy as np
 from scipy.interpolate import interp2d
 from imutils import face_utils
+from multiprocessing.pool import ThreadPool
+from collections import deque
 
 def visualize_img(img):
     cv2.imshow('t', img)
@@ -285,22 +287,31 @@ def main():
     video_path = './TestSet/Test1.mp4'
     face_img_path = './TestSet/Rambo.jpg'
     cap = cv2.VideoCapture(video_path)
+    thread_num = cv2.getNumberOfCPUs()
+    pool = ThreadPool(processes=thread_num)
+    pending_task = deque()
     face_img = cv2.imread(face_img_path)
     _, face1_pts = facial_landmark(face_img)
     if (cap.isOpened()== False): 
         print("Error opening video file")
     count = 0
     while(cap.isOpened()):
-        count += 1
-        ret, frame = cap.read()
-        if ret == True:
-            num_face2, face2_pts = facial_landmark(frame)
-            if(num_face2 == 0):
-                continue
-            res = traditional(face_img, frame, face1_pts, face2_pts, method)
+        # consume the queue
+        while len(pending_task) > 0 and pending_task[0].ready():
+            res = pending_task.popleft().get()
             cv2.imshow('r', res)
-            if cv2.waitKey(25) & 0xFF == ord('q'):
-                break
+        # populate the queue
+        if len(pending_task) < thread_num:
+            ret, frame = cap.read()
+            if ret:
+                num_face2, face2_pts = facial_landmark(frame)
+                if(num_face2 == 0):
+                    continue
+                process = traditional(face_img, frame, face1_pts, face2_pts, method)
+                task = pool.apply_async(process, (frame.copy()))
+                pending_task.append(task)
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            break
         else:
             break
     cap.release()
