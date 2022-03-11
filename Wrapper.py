@@ -66,20 +66,30 @@ def blend(warped_img, dst_img, dst_hull):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--method', default='tri', type=str, help='tri, tps')
+    parser.add_argument('--method', default='tri', type=str, help='tri, tps, prnet')
     Args = parser.parse_args()
     method = Args.method
 
     video_path = './TestSet/Test1.mp4'
     face_img_path = './TestSet/Rambo.jpg'
+    # video_path = './me.mp4'
+    # face_img_path = './ironman.jpg'
     cap = cv2.VideoCapture(video_path)
     face_img = cv2.imread(face_img_path)
+    # scale_percent = 50 # percent of original size
+    # width = int(face_img.shape[1] * scale_percent / 100)
+    # height = int(face_img.shape[0] * scale_percent / 100)
+    # face_img = cv2.resize(face_img, (width, height), interpolation = cv2.INTER_AREA)
     _, face1_pts = facial_landmark(face_img)
     if (cap.isOpened()== False): 
         print("Error opening video file")
     while(cap.isOpened()):
         ret, frame = cap.read()
         if ret == True:
+            scale_percent = 50 # percent of original size
+            width = int(frame.shape[1] * scale_percent / 100)
+            height = int(frame.shape[0] * scale_percent / 100)
+            frame = cv2.resize(frame, (width, height), interpolation = cv2.INTER_AREA)
             num_face2, face2_pts = facial_landmark(frame)
             if num_face2 == 0:
                 continue

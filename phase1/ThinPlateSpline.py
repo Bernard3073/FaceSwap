@@ -62,6 +62,7 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
             x = min(max(int(x), 0), src.shape[1]-1)
             y = min(max(int(y), 0), src.shape[0]-1)
             warped_img[j, i] = src[y, x, :] 
+            
     warped_img = warped_img * mask
     dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] * ( (1.0, 1.0, 1.0) - mask )
     dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] + warped_img

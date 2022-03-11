@@ -44,47 +44,52 @@ def delaunay_triangle(img, faces):
                 res.append(np.array(indices))
     return res
 
-def triangulation_model(src, src_tri, dst_tri, size):
+def GenerateCoordinates(points):
+    return np.asarray([(x,y) for y in range(np.min(points[:,1]) , np.max(points[:,1])+1) for x in range(np.min(points[:,0]) , np.max(points[:,0])+1)])
 
-    t = dst_tri
+def triangulation_model(src, src_tri, dst_tri, h2, w2):
 
-    dst_rect = cv2.boundingRect(np.float32([t]))
+    dst_rect = cv2.boundingRect(np.float32([dst_tri]))
 
-    xleft = dst_rect[0]
-    xright = dst_rect[0] + dst_rect[2]
-    ytop = dst_rect[1]
-    ybottom = dst_rect[1] + dst_rect[3]
+    x_left = dst_rect[0]
+    x_right = dst_rect[0] + dst_rect[2]
+    y_top = dst_rect[1]
+    y_bottom = dst_rect[1] + dst_rect[3]
+    # for each triangle in the destination face, compute the Barycentric coordinate
+    B_mat_inv = np.linalg.inv([[dst_tri[0][0], dst_tri[1][0], dst_tri[2][0]], 
+                            [dst_tri[0][1], dst_tri[1][1], dst_tri[2][1]],
+                            [1, 1, 1]])     
 
-    dst_matrix = np.linalg.inv([[t[0][0],t[1][0],t[2][0]],[t[0][1],t[1][1],t[2][1]],[1,1,1]])     
-
-    grid = np.mgrid[xleft:xright, ytop:ybottom].reshape(2,-1)
-    #grid 2xN
-    grid = np.vstack((grid, np.ones((1, grid.shape[1]))))
-    #grid 3xN
-    barycen_cord = np.dot(dst_matrix, grid)
+    dst_tri_x, dst_tri_y = np.mgrid[x_left:x_right, y_top:y_bottom].reshape(2,-1)
+    ones = np.ones((1, dst_tri_x.shape[0]))
+    dst_tri_coord = np.vstack((dst_tri_x, dst_tri_y, ones))
+    barycen_cord = B_mat_inv @ dst_tri_coord
 
     epsilon = 0.1
     t =[]
-    b = np.all(barycen_cord>-epsilon, axis=0)
-    a = np.all(barycen_cord<1+epsilon, axis=0)
-    for i in range(len(a)):
-        t.append(a[i] and b[i])
+    lower_bound = np.all(barycen_cord > -epsilon, axis=0)
+    upper_bound = np.all(barycen_cord < 1+epsilon, axis=0)
+    # find index for the target location
+    for l, u in zip(lower_bound, upper_bound):
+        t.append(l and u)
     dst_y = []
     dst_x = []
     for i in range(len(t)):
         if(t[i]):
-            dst_y.append(i%dst_rect[3])
-            dst_x.append(i/dst_rect[3])
+            dst_y.append(i % dst_rect[3])
+            dst_x.append(i / dst_rect[3])
 
-    barycen_cord = barycen_cord[:,np.all(-epsilon<barycen_cord, axis=0)]
-    barycen_cord = barycen_cord[:,np.all(barycen_cord<1+epsilon, axis=0)]
-
-    src_matrix = np.matrix([[src_tri[0][0],src_tri[1][0],src_tri[2][0]],
-                            [src_tri[0][1],src_tri[1][1],src_tri[2][1]],[1,1,1]])
-    pts = np.matmul(src_matrix,barycen_cord)
-    
-    src_x = pts[0,:]/pts[2,:]
-    src_y = pts[1,:]/pts[2,:]
+    # make the Barycentric coordinate lies inside the triangle
+    barycen_cord = barycen_cord[:, np.all(barycen_cord > -epsilon, axis=0)]
+    barycen_cord = barycen_cord[:, np.all(barycen_cord < 1+epsilon, axis=0)]
+    # compute the corresponding pixel position in the source image
+    A_mat = np.array([[src_tri[0][0], src_tri[1][0], src_tri[2][0]],
+                      [src_tri[0][1], src_tri[1][1], src_tri[2][1]],
+                      [1, 1, 1]])
+    pts = A_mat @ barycen_cord
+    # convert to homogeneous coordinates
+    src_x = pts[0,:] / pts[2,:]
+    src_y = pts[1,:] / pts[2,:]
     
     # copy back the value of pixel at (x_A, y_A) to the target location
     xs = np.linspace(0, src.shape[1], num=src.shape[1], endpoint=False)
@@ -93,49 +98,44 @@ def triangulation_model(src, src_tri, dst_tri, size):
     b_eq = interp2d(xs, ys, blue, kind='cubic')
     g_eq = interp2d(xs, ys, green, kind='cubic')
     r_eq = interp2d(xs, ys, red, kind='cubic')
-    dst= np.zeros((size[1], size[0], 3), np.uint8)
+    dst= np.zeros((h2, w2, 3), np.uint8)
     for ind, (x, y) in enumerate(zip(src_x.flat, src_y.flat)):
         b = b_eq(x, y)[0]
         g = g_eq(x, y)[0]
         r = r_eq(x, y)[0]
-        dst[int(dst_y[ind-2]), int(dst_x[ind-2])] = (b, g, r)
+        dst[int(dst_y[ind]), int(dst_x[ind])] = (b, g, r)
     return dst
 
 def warpTriangle(img1, img2, del_tri1, del_tri2):
     # Find bounding rectangle for each triangle
-    b_rect1 = cv2.boundingRect(np.float32([del_tri1]))
-    b_rect2 = cv2.boundingRect(np.float32([del_tri2]))
-    # Offset points by left top corner of the respective rectangles
+    (x1, y1, w1, h1) = cv2.boundingRect(np.float32([del_tri1]))
+    (x2, y2, w2, h2) = cv2.boundingRect(np.float32([del_tri2]))
+
     del_tri_rect1 = []
     del_tri_rect2 = []
 
     for r1, r2 in zip(del_tri1, del_tri2):
-        del_tri_rect1.append((r1[0] - b_rect1[0], (r1[1] - b_rect1[1])))
-        del_tri_rect2.append((r2[0] - b_rect2[0], (r2[1] - b_rect2[1])))
-
+        del_tri_rect1.append((r1[0] - x1, (r1[1] - y1)))
+        del_tri_rect2.append((r2[0] - x2, (r2[1] - y2)))
     # Get mask by filling triangle
-    mask = np.zeros((b_rect2[3], b_rect2[2], 3), np.float32)
-    # print("Mask shape = "+str(mask.shape))
+    mask = np.zeros((h2, w2, 3), np.float32)
 
     cv2.fillConvexPoly(mask, np.int32(del_tri_rect2), (1.0, 1.0, 1.0), 16, 0)
 
-    # Apply warpImage to small rectangular patches
-    img1Rect = img1[b_rect1[1]:b_rect1[1] + b_rect1[3], b_rect1[0]:b_rect1[0] + b_rect1[2]]
-    img2Rect = np.zeros((b_rect2[3], b_rect2[2]), dtype=img1Rect.dtype)
+    # cropped triangles in img1
+    img1Rect = img1[y1:y1 + h1, x1:x1 + w1]
 
-    size = (b_rect2[2], b_rect2[3])
+    img2Rect = np.zeros((h2, w2), dtype=img1Rect.dtype)
 
-    # img2Rect = triangulationWarping(img1Rect, t1Rect, t2Rect, size)
-    img2Rect = triangulation_model(img1Rect, del_tri_rect1, del_tri_rect2, size)
-    # print("img2rect shape =  "+str(img2Rect.shape))
 
+    img2Rect = triangulation_model(img1Rect, del_tri_rect1, del_tri_rect2, h2, w2)
     img2Rect = img2Rect * mask
 
     # Copy triangular region of the rectangular patch to the output image
-    img2[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = img2[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] * ((1.0, 1.0, 1.0) - mask)
-
-    img2[b_rect2[1]:b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] = img2[b_rect2[1]
-        :b_rect2[1]+b_rect2[3], b_rect2[0]:b_rect2[0]+b_rect2[2]] + img2Rect
+    img2_rect_area = img2[y2:y2+h2, x2:x2+w2]
+    img2_rect_area = img2_rect_area * ((1.0, 1.0, 1.0) - mask)
+    img2_rect_area = img2_rect_area + img2Rect
+    img2[y2:y2+h2, x2:x2+w2] = img2_rect_area
 
 def triangulation_warping(src, dst, dst_copy, src_hull, dst_hull):
     # delaunay triangulation for convex hull
