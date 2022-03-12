@@ -5,7 +5,7 @@ import numpy as np
 
 def resBlock(x, num_outputs, kernel_size = 4, stride=1, activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, scope=None):
     assert num_outputs%2==0 #num_outputs must be divided by channel_factor(2 here)
-    with tf.variable_scope(scope, 'resBlock'):
+    with tf.compat.v1.variable_scope(scope, 'resBlock'):
         shortcut = x
         if stride != 1 or x.get_shape()[3] != num_outputs:
             shortcut = tcl.conv2d(shortcut, num_outputs, kernel_size=1, stride=stride, 
@@ -28,7 +28,7 @@ class resfcn256(object):
         self.resolution_op = resolution_op
 
     def __call__(self, x, is_training = True):
-        with tf.variable_scope(self.name) as scope:
+        with tf.compat.v1.variable_scope(self.name) as scope:
             with arg_scope([tcl.batch_norm], is_training=is_training, scale=True):
                 with arg_scope([tcl.conv2d, tcl.conv2d_transpose], activation_fn=tf.nn.relu, 
                                      normalizer_fn=tcl.batch_norm, 
@@ -72,7 +72,7 @@ class resfcn256(object):
                     return pos
     @property
     def vars(self):
-        return [var for var in tf.global_variables() if self.name in var.name]
+        return [var for var in tf.compat.v1.global_variables() if self.name in var.name]
 
 
 class PosPrediction():
@@ -86,12 +86,12 @@ class PosPrediction():
         self.network = resfcn256(self.resolution_inp, self.resolution_op)
 
         # net forward
-        self.x = tf.placeholder(tf.float32, shape=[None, self.resolution_inp, self.resolution_inp, 3])  
+        self.x = tf.compat.v1.placeholder(tf.float32, shape=[None, self.resolution_inp, self.resolution_inp, 3])  
         self.x_op = self.network(self.x, is_training = False)
-        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True)))
+        self.sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=tf.compat.v1.GPUOptions(allow_growth=True)))
 
     def restore(self, model_path):        
-        tf.train.Saver(self.network.vars).restore(self.sess, model_path)
+        tf.compat.v1.train.Saver(self.network.vars).restore(self.sess, model_path)
  
     def predict(self, image):
         pos = self.sess.run(self.x_op, 

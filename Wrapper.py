@@ -3,11 +3,13 @@ import cv2
 import dlib
 import argparse
 import numpy as np
-from imutils import face_utils
+from imutils import face_utils, rotate
 from phase1.ThinPlateSpline import thin_plate_spline_warping
 from phase1.Triangulation import triangulation_warping
 from phase2.api import PRN
 from phase2.prnet import *
+from phase1.twofaces_detection import twofaces_detection
+from phase2.prnet_twofaces import *
 
 def facial_landmark(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -59,65 +61,101 @@ def blend(warped_img, dst_img, dst_hull):
     
     mask = np.zeros_like(dst_img)
     cv2.fillConvexPoly(mask, np.int32(hull), (255, 255, 255))
-    r = cv2.boundingRect(np.float32([hull]))
-    center = ((r[0] + int(r[2]/2), r[1] + int(r[3]/2)))
+    # r = cv2.boundingRect(np.float32([hull]))
+    # center = ((r[0] + int(r[2]/2), r[1] + int(r[3]/2)))
+    (x, y, w, h) = cv2.boundingRect(np.float32([hull]))
+    dst_face_center = (int((x + x + w)/2), int((y + y + h)/2))
 
-    output = cv2.seamlessClone(np.uint8(warped_img), dst_img, mask, center, cv2.NORMAL_CLONE)
+    output = cv2.seamlessClone(np.uint8(warped_img), dst_img, mask, dst_face_center, cv2.NORMAL_CLONE)
 
     return output
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--method', default='prnet', type=str, help='tri, tps, prnet')
+    parser.add_argument('--twofaces', default=True, type=bool, help='swap two faces in video')
     Args = parser.parse_args()
     method = Args.method
+    twofaces = Args.twofaces
 
-    video_path = './TestSet/Test1.mp4'
+    video_path = './TestSet/twofaces.mp4'
     face_img_path = './TestSet/Rambo.jpg'
     # video_path = './me.mp4'
     # face_img_path = './ironman.jpg'
     cap = cv2.VideoCapture(video_path)
     face_img = cv2.imread(face_img_path)
-    if method != 'prnet':
-        # scale_percent = 50 # percent of original size
-        # width = int(face_img.shape[1] * scale_percent / 100)
-        # height = int(face_img.shape[0] * scale_percent / 100)
-        # face_img = cv2.resize(face_img, (width, height), interpolation = cv2.INTER_AREA)
-        _, face1_pts = facial_landmark(face_img)
-    else:
-        prn = PRN(is_dlib = True)
-        prev_pos = None
     if (cap.isOpened()== False): 
         print("Error opening video file")
-    while(cap.isOpened()):
-        ret, frame = cap.read()
-        if ret == True:
-            scale_percent = 50 # percent of original size
-            width = int(frame.shape[1] * scale_percent / 100)
-            height = int(frame.shape[0] * scale_percent / 100)
-            frame = cv2.resize(frame, (width, height), interpolation = cv2.INTER_AREA)
-            if method != "prnet":
-                num_face2, face2_pts = facial_landmark(frame)
-                if num_face2 == 0:
-                    continue
-                res = traditional(face_img, frame, face1_pts, face2_pts, method)
-            else:
-                pos = prn.process(frame)
-                ref_pos = prn.process(face_img)
-
-                if pos is None:
-                    if prev_pos is not None:
-                        pos = prev_pos
-                    else:
-                        print("ERROR: No Faces Found !!!")
-                        res = frame
-                if pos is not None:
-                    res = deep_learning(prn, pos, ref_pos, frame, face_img)
-            cv2.imshow('r', res)
-            if cv2.waitKey(25) & 0xFF == ord('q'):
-                break
+    if(not twofaces):
+        if method != 'prnet':
+            _, face1_pts = facial_landmark(face_img)
         else:
-            break
+            prn = PRN(is_dlib = True)
+            prev_pos = None
+
+        while(cap.isOpened()):
+            ret, frame = cap.read()
+            if ret == True:
+                if method != "prnet":
+                    num_face2, face2_pts = facial_landmark(frame)
+                    if num_face2 == 0:
+                        continue
+                    res = traditional(face_img, frame, face1_pts, face2_pts, method)
+                else:
+                    pos = prn.process(frame)
+                    ref_pos = prn.process(face_img)
+
+                    if pos is None:
+                        if prev_pos is not None:
+                            pos = prev_pos
+                        else:
+                            print("ERROR: No Faces Found !!!")
+                            res = frame
+                    if pos is not None:
+                        res = deep_learning(prn, pos, ref_pos, frame, face_img)
+                cv2.imshow('r', res)
+                if cv2.waitKey(25) & 0xFF == ord('q'):
+                    break
+            else:
+                break
+    else:
+        print("Swap two faces in video !!!")
+        if(method == 'prnet'):
+            prn = PRN_twofaces(is_dlib=True)
+        while(cap.isOpened()):
+            ret, frame = cap.read()
+            if(ret == True):
+                frame = rotate(frame, 180)
+                if(method != 'prnet'):
+                    num_faces, twoface_pts = twofaces_detection(frame)
+                    if(num_faces != 2):
+                        print("ERROR: Not able to find two faces in video !!!")
+                        continue
+                    else:
+                        face1_pts = twoface_pts[0]
+                        face2_pts = twoface_pts[1]
+                    tmp = traditional(frame, frame, face1_pts, face2_pts, method)
+                    res = traditional(frame, tmp, face2_pts, face1_pts, method)
+                    cv2.imshow('r', res)
+                    if cv2.waitKey(25) & 0xFF == ord('q'):
+                        break
+                else:
+                    pos = prn.process(frame)
+                    if pos is None:
+                        pos = prev_pos
+                    if len(pos) == 2:
+                        prev_pos = pos
+                        pose1 ,pose2 = pos[0],pos[1]
+                        tmp = deep_learning(prn, pose1, pose2, frame, frame)
+                        res = deep_learning(prn, pose2, pose1, tmp, frame)
+                    else:
+                        pos = prev_pos
+                    cv2.imshow('r', res)
+                    if cv2.waitKey(25) & 0xFF == ord('q'):
+                        break
+            else:
+                break
+            
     cap.release()
     cv2.destroyAllWindows()
 if __name__ == '__main__':
