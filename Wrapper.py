@@ -6,6 +6,8 @@ import numpy as np
 from imutils import face_utils
 from phase1.ThinPlateSpline import thin_plate_spline_warping
 from phase1.Triangulation import triangulation_warping
+from phase2.api import PRN
+from phase2.prnet import *
 
 def facial_landmark(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -66,7 +68,7 @@ def blend(warped_img, dst_img, dst_hull):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--method', default='tri', type=str, help='tri, tps, prnet')
+    parser.add_argument('--method', default='prnet', type=str, help='tri, tps, prnet')
     Args = parser.parse_args()
     method = Args.method
 
@@ -76,11 +78,15 @@ def main():
     # face_img_path = './ironman.jpg'
     cap = cv2.VideoCapture(video_path)
     face_img = cv2.imread(face_img_path)
-    # scale_percent = 50 # percent of original size
-    # width = int(face_img.shape[1] * scale_percent / 100)
-    # height = int(face_img.shape[0] * scale_percent / 100)
-    # face_img = cv2.resize(face_img, (width, height), interpolation = cv2.INTER_AREA)
-    _, face1_pts = facial_landmark(face_img)
+    if method != 'prnet':
+        # scale_percent = 50 # percent of original size
+        # width = int(face_img.shape[1] * scale_percent / 100)
+        # height = int(face_img.shape[0] * scale_percent / 100)
+        # face_img = cv2.resize(face_img, (width, height), interpolation = cv2.INTER_AREA)
+        _, face1_pts = facial_landmark(face_img)
+    else:
+        prn = PRN(is_dlib = True)
+        prev_pos = None
     if (cap.isOpened()== False): 
         print("Error opening video file")
     while(cap.isOpened()):
@@ -90,10 +96,23 @@ def main():
             width = int(frame.shape[1] * scale_percent / 100)
             height = int(frame.shape[0] * scale_percent / 100)
             frame = cv2.resize(frame, (width, height), interpolation = cv2.INTER_AREA)
-            num_face2, face2_pts = facial_landmark(frame)
-            if num_face2 == 0:
-                continue
-            res = traditional(face_img, frame, face1_pts, face2_pts, method)
+            if method != "prnet":
+                num_face2, face2_pts = facial_landmark(frame)
+                if num_face2 == 0:
+                    continue
+                res = traditional(face_img, frame, face1_pts, face2_pts, method)
+            else:
+                pos = prn.process(frame)
+                ref_pos = prn.process(face_img)
+
+                if pos is None:
+                    if prev_pos is not None:
+                        pos = prev_pos
+                    else:
+                        print("ERROR: No Faces Found !!!")
+                        res = frame
+                if pos is not None:
+                    res = deep_learning(prn, pos, ref_pos, frame, face_img)
             cv2.imshow('r', res)
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 break
