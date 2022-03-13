@@ -41,13 +41,13 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
     src_pts = np.array(src_pts)
     dst_pts = np.array(dst_pts)
     p = len(src_pts)
-    r = cv2.boundingRect(np.float32([dst_pts]))
-    mask = np.zeros((r[3], r[2], 3), np.float32)
+    (x, y, w, h) = cv2.boundingRect(np.float32([dst_pts]))
+    mask = np.zeros((h, w, 3), np.float32)
 
     points2_t = []
 
-    for i in range(len(dst_hull)):
-        points2_t.append(((dst_hull[i][0]-r[0]),(dst_hull[i][1]-r[1])))
+    for dh in dst_hull:
+        points2_t.append(((dh[0]-x),(dh[1]-y)))
 
     cv2.fillConvexPoly(mask, np.int32(points2_t), (1.0, 1.0, 1.0), 16, 0)
 
@@ -58,13 +58,17 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
 
     for i in range(warped_img.shape[1]):
         for j in range(warped_img.shape[0]):
-            x, y = f(est_params_x, est_params_y, p, dst_pts, i + r[0], j + r[1])
+            x, y = f(est_params_x, est_params_y, p, dst_pts, i + x, j + y)
             x = min(max(int(x), 0), src.shape[1]-1)
             y = min(max(int(y), 0), src.shape[0]-1)
             warped_img[j, i] = src[y, x, :] 
             
     warped_img = warped_img * mask
-    dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] * ( (1.0, 1.0, 1.0) - mask )
-    dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] + warped_img
+    # dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] * ( (1.0, 1.0, 1.0) - mask )
+    # dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = dst[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] + warped_img
+    dst_rect_area = dst[y:y+h, x:x+w]
+    dst_rect_area = dst_rect_area * ((1.0, 1.0, 1.0) - mask)
+    dst_rect_area = dst_rect_area + warped_img
+    dst[y:y+h, x:x+w] = dst_rect_area
     
     return dst

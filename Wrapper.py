@@ -17,23 +17,23 @@ def facial_landmark(img):
     PREDICTOR_PATH = './shape_predictor_68_face_landmarks.dat'
     predictor = dlib.shape_predictor(PREDICTOR_PATH)
     # detect faces in the grayscale frame
-    faceRects = detector(gray, 0)
+    faceRects = detector(gray, 1)
+    
     face_pts = []
     if len(faceRects) > 0:
         for faceRect in faceRects:
             # compute the bounding box of the face and draw it on the frame
             (bX, bY, bW, bH) = face_utils.rect_to_bb(faceRect)
-            cv2.rectangle(img, (bX, bY), (bX + bW, bY + bH), (0, 255, 0), 1)
+            # cv2.rectangle(img, (bX, bY), (bX + bW, bY + bH), (0, 255, 0), 1)
             # determine the facial landmarks for the face region, then
             # convert the facial landmark (x, y)-coordinates to a NumPy array
             shape = predictor(gray, faceRect)
             shape = face_utils.shape_to_np(shape)
             # for (i, (x, y)) in enumerate(shape):
             for (x, y) in shape:
-                cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
+                # cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
                 face_pts.append((x, y))
-    else:
-        print("ERROR: NO FACES FOUND!!!")
+
 
     return len(faceRects), face_pts
 
@@ -46,9 +46,9 @@ def traditional(src, dst, src_face, dst_face, method):
     for h in hull:
         src_hull.append(src_face[int(h)])
         dst_hull.append(dst_face[int(h)])
-    if method == 'tps':
+    if method == 'TPS':
         warped_img = thin_plate_spline_warping(src, dst_copy, src_face, dst_face, dst_hull)
-    elif method == 'tri':
+    elif method == 'Tri':
         warped_img = triangulation_warping(src, dst, dst_copy, src_hull, dst_hull)
     output = blend(warped_img, dst, dst_hull)
 
@@ -72,31 +72,38 @@ def blend(warped_img, dst_img, dst_hull):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--method', default='prnet', type=str, help='tri, tps, prnet')
-    parser.add_argument('--twofaces', default=True, type=bool, help='swap two faces in video')
+    parser.add_argument('--method', default='TPS', type=str, help='Tri, TPS, PRNet')
+    parser.add_argument('--twofaces', default=False, type=bool, help='swap two faces in video')
     Args = parser.parse_args()
     method = Args.method
     twofaces = Args.twofaces
 
-    video_path = './TestSet/twofaces.mp4'
-    face_img_path = './TestSet/Rambo.jpg'
-    # video_path = './me.mp4'
-    # face_img_path = './ironman.jpg'
+    video_path = './me.mp4'
+    face_img_path = './ironman.jpg'
     cap = cv2.VideoCapture(video_path)
-    face_img = cv2.imread(face_img_path)
+    _, frame = cap.read()
     if (cap.isOpened()== False): 
         print("Error opening video file")
+    frame_width = int(cap.get(3)) 
+    frame_height = int(cap.get(4))
+    result = cv2.VideoWriter('Data'+method+'.mp4',  
+                            cv2.VideoWriter_fourcc(*'XVID'), 
+                            10, (frame_width, frame_height)) 
+    face_img = cv2.imread(face_img_path)
+    count = 0
     if(not twofaces):
-        if method != 'prnet':
+        if method != 'PRNet':
             _, face1_pts = facial_landmark(face_img)
         else:
             prn = PRN(is_dlib = True)
             prev_pos = None
 
-        while(cap.isOpened()):
-            ret, frame = cap.read()
+        while(True):
+            ret, frame = cap.read()  
+            if not ret:
+                break
             if ret == True:
-                if method != "prnet":
+                if method != "PRNet":
                     num_face2, face2_pts = facial_landmark(frame)
                     if num_face2 == 0:
                         continue
@@ -109,27 +116,30 @@ def main():
                         if prev_pos is not None:
                             pos = prev_pos
                         else:
-                            print("ERROR: No Faces Found !!!")
+                            print("Frame " + count + ": No Faces Found !!!")
                             res = frame
                     if pos is not None:
                         res = deep_learning(prn, pos, ref_pos, frame, face_img)
                 cv2.imshow('r', res)
+                result.write(res)
                 if cv2.waitKey(25) & 0xFF == ord('q'):
                     break
             else:
                 break
     else:
         print("Swap two faces in video !!!")
-        if(method == 'prnet'):
+        if(method == 'PRNet'):
             prn = PRN_twofaces(is_dlib=True)
-        while(cap.isOpened()):
+        while(True):
             ret, frame = cap.read()
+            if not ret: 
+                break
             if(ret == True):
                 frame = rotate(frame, 180)
-                if(method != 'prnet'):
+                if(method != 'PRNet'):
                     num_faces, twoface_pts = twofaces_detection(frame)
                     if(num_faces != 2):
-                        print("ERROR: Not able to find two faces in video !!!")
+                        print("Frame " + count + ": Not able to find two faces in video !!!")
                         continue
                     else:
                         face1_pts = twoface_pts[0]
@@ -137,6 +147,7 @@ def main():
                     tmp = traditional(frame, frame, face1_pts, face2_pts, method)
                     res = traditional(frame, tmp, face2_pts, face1_pts, method)
                     cv2.imshow('r', res)
+                    result.write(res)
                     if cv2.waitKey(25) & 0xFF == ord('q'):
                         break
                 else:
@@ -151,12 +162,15 @@ def main():
                     else:
                         pos = prev_pos
                     cv2.imshow('r', res)
+                    result.write(res)
                     if cv2.waitKey(25) & 0xFF == ord('q'):
                         break
             else:
                 break
             
     cap.release()
+    result.release()
     cv2.destroyAllWindows()
+
 if __name__ == '__main__':
     main()

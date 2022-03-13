@@ -28,7 +28,7 @@ else:
 #########################################################################################################
 def resBlock(x, num_outputs, kernel_size = 4, stride=1, activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, scope=None):
     assert num_outputs%2==0 #num_outputs must be divided by channel_factor(2 here)
-    with tf.variable_scope(scope, 'resBlock'):
+    with tf.compat.v1.variable_scope(scope, 'resBlock'):
         shortcut = x
         if stride != 1 or x.get_shape()[3] != num_outputs:
             shortcut = tcl.conv2d(shortcut, num_outputs, kernel_size=1, stride=stride, 
