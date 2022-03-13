@@ -44,9 +44,6 @@ def delaunay_triangle(img, faces):
                 res.append(np.array(indices))
     return res
 
-def GenerateCoordinates(points):
-    return np.asarray([(x,y) for y in range(np.min(points[:,1]) , np.max(points[:,1])+1) for x in range(np.min(points[:,0]) , np.max(points[:,0])+1)])
-
 def triangulation_model(src, src_tri, dst_tri, h2, w2):
 
     dst_rect = cv2.boundingRect(np.float32([dst_tri]))
