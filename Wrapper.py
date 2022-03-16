@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import cv2
 import dlib
 import argparse
@@ -80,6 +80,8 @@ def main():
 
     video_path = './me.mp4'
     face_img_path = './ironman.jpg'
+    # video_path = './TestSet/Test1.mp4'
+    # face_img_path = './TestSet/Rambo.jpg'
     cap = cv2.VideoCapture(video_path)
     _, frame = cap.read()
     if (cap.isOpened()== False): 
@@ -87,8 +89,8 @@ def main():
     frame_width = int(cap.get(3)) 
     frame_height = int(cap.get(4))
     result = cv2.VideoWriter('Data'+method+'.mp4',  
-                            cv2.VideoWriter_fourcc(*'XVID'), 
-                            10, (frame_width, frame_height)) 
+                            cv2.VideoWriter_fourcc(*'mp4v'), 
+                            20, (frame_width, frame_height)) 
     face_img = cv2.imread(face_img_path)
     count = 0
     if(not twofaces):

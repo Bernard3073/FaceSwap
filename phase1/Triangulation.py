@@ -60,7 +60,7 @@ def triangulation_model(src, src_tri, dst_tri, h2, w2):
     dst_tri_x, dst_tri_y = np.mgrid[x_left:x_right, y_top:y_bottom].reshape(2,-1)
     ones = np.ones((1, dst_tri_x.shape[0]))
     dst_tri_coord = np.vstack((dst_tri_x, dst_tri_y, ones))
-    barycen_cord = B_mat_inv @ dst_tri_coord
+    barycen_cord = np.matmul(B_mat_inv, dst_tri_coord)
 
     epsilon = 0.1
     t =[]
@@ -83,7 +83,7 @@ def triangulation_model(src, src_tri, dst_tri, h2, w2):
     A_mat = np.array([[src_tri[0][0], src_tri[1][0], src_tri[2][0]],
                       [src_tri[0][1], src_tri[1][1], src_tri[2][1]],
                       [1, 1, 1]])
-    pts = A_mat @ barycen_cord
+    pts = np.matmul(A_mat, barycen_cord)
     # convert to homogeneous coordinates
     src_x = pts[0,:] / pts[2,:]
     src_y = pts[1,:] / pts[2,:]

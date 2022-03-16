@@ -23,7 +23,7 @@ def tps_model(src_1d, dst_pts):
     lamda = 0.0001
     A_mat = K_P_Pt_mat + lamda * np.identity((p + 3))
     v_o = np.concatenate((src_1d, [0, 0, 0]))
-    est_params = np.linalg.inv(A_mat) @ v_o
+    est_params = np.matmul(np.linalg.inv(A_mat), v_o)
     return est_params
 
 def f(x_param, y_param, p, dst_pts, img_warp_row, img_warp_col):
@@ -58,10 +58,10 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
 
     for i in range(warped_img.shape[1]):
         for j in range(warped_img.shape[0]):
-            x, y = f(est_params_x, est_params_y, p, dst_pts, i + x, j + y)
-            x = min(max(int(x), 0), src.shape[1]-1)
-            y = min(max(int(y), 0), src.shape[0]-1)
-            warped_img[j, i] = src[y, x, :] 
+            a, b = f(est_params_x, est_params_y, p, dst_pts, i + x, j + y)
+            a = min(max(int(a), 0), src.shape[1]-1)
+            b = min(max(int(b), 0), src.shape[0]-1)
+            warped_img[j, i] = src[b, a, :] 
             
     warped_img = warped_img * mask
     dst_rect_area = dst[y:y+h, x:x+w]
