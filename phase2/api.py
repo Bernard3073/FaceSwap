@@ -16,12 +16,7 @@ config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth = True
 session = tf.compat.v1.Session(config=config)
 
-print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
-if (len(tf.config.experimental.list_physical_devices('GPU')) > 0) :
-       print(" RUNNING IN GPU ")
-else:
-       print(" NO GPU FOUND" )
         
 #########################################################################################################
 #########################################################################################################
@@ -168,7 +163,7 @@ class PRN:
         resolution = self.resolution_op
         uv_coords = np.meshgrid(range(resolution),range(resolution))
         uv_coords = np.transpose(np.array(uv_coords), [1,2,0])
-        uv_coords = np.reshape(uv_coords, [resolution**2, -1]);
+        uv_coords = np.reshape(uv_coords, [resolution**2, -1])
         uv_coords = uv_coords[self.face_ind, :]
         uv_coords = np.hstack((uv_coords[:,:2], np.zeros([uv_coords.shape[0], 1])))
         return uv_coords

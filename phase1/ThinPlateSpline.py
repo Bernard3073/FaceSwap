@@ -13,7 +13,8 @@ def tps_model(src_1d, dst_pts):
     P_mat = np.zeros((p, 3), np.float32) # size: p x 3
     for i in range(p):
         for j in range(p):
-            K_mat[i, j] = U(np.linalg.norm(dst_pts[i, :] - dst_pts[j, :]))
+            r = np.linalg.norm(dst_pts[i, :] - dst_pts[j, :])
+            K_mat[i, j] = U(r)
 
     P_mat = np.hstack((dst_pts, np.ones((p, 1))))
     
@@ -44,29 +45,75 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
     (x, y, w, h) = cv2.boundingRect(np.float32([dst_pts]))
     mask = np.zeros((h, w, 3), np.float32)
 
-    points2_t = []
+    pts2_t = []
 
     for dh in dst_hull:
-        points2_t.append(((dh[0]-x),(dh[1]-y)))
+        pts2_t.append(((dh[0]-x),(dh[1]-y)))
 
-    cv2.fillConvexPoly(mask, np.int32(points2_t), (1.0, 1.0, 1.0), 16, 0)
+    cv2.fillConvexPoly(mask, np.int32(pts2_t), (1.0, 1.0, 1.0), 16, 0)
 
-    warped_img = np.copy(mask)
 
-    est_params_x = tps_model(src_pts[:, 0], dst_pts)
-    est_params_y = tps_model(src_pts[:, 1], dst_pts)
+    est_params_x = tps_model(src_pts[:, 0], dst_pts) # size: 68+3
+    est_params_y = tps_model(src_pts[:, 1], dst_pts) # size: 68+3
 
-    for i in range(warped_img.shape[1]):
-        for j in range(warped_img.shape[0]):
-            a, b = f(est_params_x, est_params_y, p, dst_pts, i + x, j + y)
-            a = min(max(int(a), 0), src.shape[1]-1)
-            b = min(max(int(b), 0), src.shape[0]-1)
-            warped_img[j, i] = src[b, a, :] 
-            
-    warped_img = warped_img * mask
-    dst_rect_area = dst[y:y+h, x:x+w]
-    dst_rect_area = dst_rect_area * ((1.0, 1.0, 1.0) - mask)
-    dst_rect_area = dst_rect_area + warped_img
-    dst[y:y+h, x:x+w] = dst_rect_area
+    est_params_x = est_params_x.reshape(-1,1) # size: 71 x 1
+    est_params_y = est_params_y.reshape(-1,1) # size: 71 x 1
+
+    Xi, Yi = np.indices((dst.shape[1], dst.shape[0])) 
+    warped_pts = np.stack((Xi.ravel(), Yi.ravel(), np.ones(Xi.size))).T
     
-    return dst
+    axx, ayx, a1x = est_params_x[p], est_params_x[p + 1], est_params_x[p + 2]
+    axy, ayy, a1y = est_params_y[p], est_params_y[p + 1], est_params_y[p + 2]
+
+    A = np.array([[axx, axy], [ayx, ayy], [a1x, a1y]]).reshape(3,2)
+    actual_pts = np.dot(warped_pts, A) 
+
+    warped_pts_x = warped_pts[:,0].reshape(-1,1)
+    warped_pts_y = warped_pts[:, 1].reshape(-1,1)
+    
+    dst_pts_x = dst_pts[:,0].reshape(-1,1)
+    dst_pts_y = dst_pts[:, 1].reshape(-1,1)
+
+    ax, bx = np.meshgrid(dst_pts_x, warped_pts_x)
+    ay, by = np.meshgrid(dst_pts_y, warped_pts_y)
+    # calculate the L1 norm
+    R = np.sqrt((ax - bx)**2 + (ay - by)**2) 
+
+    U = (R**2) * np.log(R**2)
+    U[R == 0] = 0 
+
+    est_params_x = est_params_x[:68, 0].T
+    est_params_y = est_params_y[:68, 0].T
+    
+    fx = est_params_x * U 
+    fy = est_params_y * U
+
+    fx_sum = np.sum(fx, axis = 1).reshape(-1,1)
+    fy_sum = np.sum(fy, axis = 1).reshape(-1,1)
+
+    actual_pts = actual_pts + np.hstack((fx_sum, fy_sum))
+    X = actual_pts[:, 0].astype(int)
+    Y = actual_pts[:, 1].astype(int)
+    X[X >= src.shape[1]] = src.shape[1] - 1
+    Y[Y >= src.shape[0]] = src.shape[0] - 1
+    X[X < 0] = 0
+    Y[Y < 0] = 0
+    warped_img = np.zeros(dst.shape)
+    warped_img[Yi.ravel(), Xi.ravel()] = src[Y, X]
+    
+    # Slow warping result
+    # warped_img = np.copy(mask)
+    # for i in range(warped_img.shape[1]):
+    #     for j in range(warped_img.shape[0]):
+    #         a, b = f(est_params_x, est_params_y, p, dst_pts, i + x, j + y)
+    #         a = min(max(int(a), 0), src.shape[1]-1)
+    #         b = min(max(int(b), 0), src.shape[0]-1)
+    #         warped_img[j, i] = src[b, a, :] 
+
+    # warped_img = warped_img * mask
+    # dst_rect_area = dst[y:y+h, x:x+w]
+    # dst_rect_area = dst_rect_area * ((1.0, 1.0, 1.0) - mask)
+    # dst_rect_area = dst_rect_area + warped_img
+    # dst[y:y+h, x:x+w] = dst_rect_area
+
+    return warped_img
