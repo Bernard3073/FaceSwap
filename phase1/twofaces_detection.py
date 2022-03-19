@@ -20,7 +20,7 @@ def twofaces_detection(img):
             
             shape = predictor(gray,rect)
             shape = face_utils.shape_to_np(shape)
-            (x,y,w,h) = face_utils.rect_to_bb(rect)
+            (x,y,_,_) = face_utils.rect_to_bb(rect)
 
             # cv2.rectangle(img,(x,y),(x+w,y+h),(0,255,0),2)
 

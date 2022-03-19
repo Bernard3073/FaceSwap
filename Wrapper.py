@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 import cv2
+from matplotlib import pyplot as plt
 import dlib
 import argparse
 import numpy as np
 from imutils import face_utils, rotate
 from phase1.ThinPlateSpline import thin_plate_spline_warping
 from phase1.Triangulation import triangulation_warping
-from phase2.api import PRN
-from phase2.prnet import *
+# from phase2.api import PRN
+# from phase2.prnet import *
 from phase1.twofaces_detection import twofaces_detection
-from phase2.prnet_twofaces import *
+# from phase2.prnet_twofaces import *
 
 def facial_landmark(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -61,12 +62,17 @@ def blend(warped_img, dst_img, dst_hull):
     
     mask = np.zeros_like(dst_img)
     cv2.fillConvexPoly(mask, np.int32(hull), (255, 255, 255))
-    # r = cv2.boundingRect(np.float32([hull]))
-    # center = ((r[0] + int(r[2]/2), r[1] + int(r[3]/2)))
+    # shrink mask to fit the face
+    kernel = np.ones((6, 6))
+    mask = cv2.erode(mask, kernel)
     (x, y, w, h) = cv2.boundingRect(np.float32([hull]))
     dst_face_center = (int((x + x + w)/2), int((y + y + h)/2))
 
     output = cv2.seamlessClone(np.uint8(warped_img), dst_img, mask, dst_face_center, cv2.NORMAL_CLONE)
+
+    # motion filtering using bilateral filter
+    face = output[y:y+h, x:x+w]
+    output[y:y+h, x:x+w] = cv2.bilateralFilter(face, 9, 75, 75)
 
     return output
 
@@ -76,11 +82,13 @@ def main():
     parser.add_argument('--videopath', default='./Data/Data3.mp4', help='path of the video')
     parser.add_argument('--facepath', default='./TestSet/Rambo.jpg', help='path of the celebrity face to swap')
     parser.add_argument('--twofaces', default=True, type=bool, help='swap two faces in video')
+    parser.add_argument('--debug', default=False, type=bool, help='only process first frame for testing')
     Args = parser.parse_args()
     method = Args.method
     twofaces = Args.twofaces
     video_path = Args.videopath
     face_img_path = Args.facepath
+    debug = Args.debug
 
     cap = cv2.VideoCapture(video_path)
     _, frame = cap.read()
@@ -141,14 +149,16 @@ def main():
                 # frame = rotate(frame, 180)
                 if(method != 'PRNet'):
                     num_faces, twoface_pts = twofaces_detection(frame)
-                    if(num_faces != 2):
+                    if(num_faces < 2):
                         print("Frame " + count + ": Not able to find two faces in video !!!")
                         continue
                     else:
+                        # Take greatest two faces
                         face1_pts = twoface_pts[0]
                         face2_pts = twoface_pts[1]
                     tmp = traditional(frame, frame, face1_pts, face2_pts, method)
                     res = traditional(frame, tmp, face2_pts, face1_pts, method)
+
                     cv2.imshow('r', res)
                     result.write(res)
                     if cv2.waitKey(25) & 0xFF == ord('q'):
@@ -170,7 +180,9 @@ def main():
                         break
             else:
                 break
-            
+            if debug == True:
+                break
+
     cap.release()
     result.release()
     cv2.destroyAllWindows()

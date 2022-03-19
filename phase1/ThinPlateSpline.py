@@ -2,19 +2,16 @@ import numpy as np
 import cv2
 
 def U_func(r):
-    res = (r**2) * np.log(r**2)
-    if np.isnan(res):
-        res = 0
-    return res
+    res = (r**2) * np.log(r**2) # if r >= 0.0001 else 0
+    return np.nan_to_num(res)
 
 def tps_model(src_1d, dst_pts):
     p = len(dst_pts)
     K_mat = np.zeros((p, p), np.float32) # size: p x p
     P_mat = np.zeros((p, 3), np.float32) # size: p x 3
-    for i in range(p):
-        for j in range(p):
-            r = np.linalg.norm(dst_pts[i, :] - dst_pts[j, :])
-            K_mat[i, j] = U_func(r)
+    for j in range(p):
+        r = np.linalg.norm(dst_pts - dst_pts[j, :], axis=1)
+        K_mat[:, j] = U_func(r)
 
     P_mat = np.hstack((dst_pts, np.ones((p, 1))))
     
