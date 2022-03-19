@@ -72,23 +72,23 @@ def blend(warped_img, dst_img, dst_hull):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--method', default='TPS', type=str, help='Tri, TPS, PRNet')
+    parser.add_argument('--method', default='Tri', type=str, help='Tri, TPS, PRNet')
+    parser.add_argument('--videopath', default='./Input/pranav.mp4', help='path of the video')
+    parser.add_argument('--facepath', default='./TestSet/Rambo.jpg', help='path of the celebrity face to swap')
     parser.add_argument('--twofaces', default=False, type=bool, help='swap two faces in video')
     Args = parser.parse_args()
     method = Args.method
     twofaces = Args.twofaces
+    video_path = Args.videopath
+    face_img_path = Args.facepath
 
-    video_path = './me.mp4'
-    face_img_path = './ironman.jpg'
-    # video_path = './TestSet/Test1.mp4'
-    # face_img_path = './TestSet/Rambo.jpg'
     cap = cv2.VideoCapture(video_path)
     _, frame = cap.read()
     if (cap.isOpened()== False): 
         print("Error opening video file")
     frame_width = int(cap.get(3)) 
     frame_height = int(cap.get(4))
-    result = cv2.VideoWriter('Data'+method+'.mp4',  
+    result = cv2.VideoWriter('Data2'+method+'.mp4',  
                             cv2.VideoWriter_fourcc(*'mp4v'), 
                             20, (frame_width, frame_height)) 
     face_img = cv2.imread(face_img_path)

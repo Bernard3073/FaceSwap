@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 
-def U(r):
+def U_func(r):
     res = (r**2) * np.log(r**2)
     if np.isnan(res):
         res = 0
@@ -14,7 +14,7 @@ def tps_model(src_1d, dst_pts):
     for i in range(p):
         for j in range(p):
             r = np.linalg.norm(dst_pts[i, :] - dst_pts[j, :])
-            K_mat[i, j] = U(r)
+            K_mat[i, j] = U_func(r)
 
     P_mat = np.hstack((dst_pts, np.ones((p, 1))))
     
@@ -32,8 +32,8 @@ def f(x_param, y_param, p, dst_pts, img_warp_row, img_warp_col):
     ax_y, ay_y, a1_y = y_param[p], y_param[p+1], y_param[p+2]
     f1, f2 = 0, 0
     for i in range(p):
-        f1 += x_param[i] * U(np.linalg.norm(dst_pts[i, :] - [img_warp_row, img_warp_col]))
-        f2 += y_param[i] * U(np.linalg.norm(dst_pts[i, :] - [img_warp_row, img_warp_col]))
+        f1 += x_param[i] * U_func(np.linalg.norm(dst_pts[i, :] - [img_warp_row, img_warp_col]))
+        f2 += y_param[i] * U_func(np.linalg.norm(dst_pts[i, :] - [img_warp_row, img_warp_col]))
     x = a1_x + ax_x * img_warp_row + ay_x * img_warp_col + f1
     y = a1_y + ax_y * img_warp_row + ay_y * img_warp_col + f2
     return x, y
@@ -80,7 +80,7 @@ def thin_plate_spline_warping(src, dst, src_pts, dst_pts, dst_hull):
     R = np.sqrt((ax - bx)**2 + (ay - by)**2) 
 
     U = (R**2) * np.log(R**2)
-    U[R == 0] = 0 
+    U[R == 0] = 0
 
     est_params_x = est_params_x[:68, 0].T
     est_params_y = est_params_y[:68, 0].T

@@ -12,8 +12,7 @@ def twofaces_detection(img):
 
     points = []
     faces = []
-    
-    # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
     num_faces = len(rects)
 
     if(num_faces==2):
@@ -23,10 +22,10 @@ def twofaces_detection(img):
             shape = face_utils.shape_to_np(shape)
             (x,y,w,h) = face_utils.rect_to_bb(rect)
 
-            cv2.rectangle(img,(x,y),(x+w,y+h),(0,255,0),2)
+            # cv2.rectangle(img,(x,y),(x+w,y+h),(0,255,0),2)
 
             for (x,y) in shape:
-                cv2.circle(img,(x,y),2,(0,0,255),-1)
+                # cv2.circle(img,(x,y),2,(0,0,255),-1)
                 points.append((x,y))
 
             faces.append(points)
