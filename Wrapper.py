@@ -73,9 +73,9 @@ def blend(warped_img, dst_img, dst_hull):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--method', default='Tri', type=str, help='Tri, TPS, PRNet')
-    parser.add_argument('--videopath', default='./Input/pranav.mp4', help='path of the video')
+    parser.add_argument('--videopath', default='./Data/Data3.mp4', help='path of the video')
     parser.add_argument('--facepath', default='./TestSet/Rambo.jpg', help='path of the celebrity face to swap')
-    parser.add_argument('--twofaces', default=False, type=bool, help='swap two faces in video')
+    parser.add_argument('--twofaces', default=True, type=bool, help='swap two faces in video')
     Args = parser.parse_args()
     method = Args.method
     twofaces = Args.twofaces
@@ -88,7 +88,7 @@ def main():
         print("Error opening video file")
     frame_width = int(cap.get(3)) 
     frame_height = int(cap.get(4))
-    result = cv2.VideoWriter('Data2'+method+'.mp4',  
+    result = cv2.VideoWriter(video_path[-9:-4]+'Output'+method+'.mp4',  
                             cv2.VideoWriter_fourcc(*'mp4v'), 
                             20, (frame_width, frame_height)) 
     face_img = cv2.imread(face_img_path)
@@ -132,12 +132,13 @@ def main():
         print("Swap two faces in video !!!")
         if(method == 'PRNet'):
             prn = PRN_twofaces(is_dlib=True)
+            prev_pos = None
         while(True):
             ret, frame = cap.read()
             if not ret: 
                 break
             if(ret == True):
-                frame = rotate(frame, 180)
+                # frame = rotate(frame, 180)
                 if(method != 'PRNet'):
                     num_faces, twoface_pts = twofaces_detection(frame)
                     if(num_faces != 2):
