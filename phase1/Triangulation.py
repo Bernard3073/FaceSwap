@@ -17,14 +17,11 @@ def delaunay_triangle(img, faces):
     box = (0, 0, img.shape[1], img.shape[0])
     subdiv = cv2.Subdiv2D(box) 
     # insert points into subdiv
-    for f in faces:
-        subdiv.insert(tuple(f))
-    triangle_list = subdiv.getTriangleList()
-
     face_pts = dict()
-    for i, j in enumerate(faces):
-        k = tuple(j)
-        face_pts[k] = i
+    for i, f in enumerate(faces):
+        subdiv.insert(tuple(f))
+        face_pts[tuple(f)] = i
+    triangle_list = subdiv.getTriangleList()
 
     res = []
     for t in triangle_list:
@@ -67,12 +64,10 @@ def triangulation_model(src, src_tri, dst_tri, h2, w2):
     lower_bound = np.all(barycen_cord > -epsilon, axis=0)
     upper_bound = np.all(barycen_cord < 1+epsilon, axis=0)
     # find index for the target location
-    for l, u in zip(lower_bound, upper_bound):
-        t.append(l and u)
     dst_y = []
     dst_x = []
-    for i in range(len(t)):
-        if(t[i]):
+    for i, (l, u) in enumerate(zip(lower_bound, upper_bound)):
+        if l and u:
             dst_y.append(i % dst_rect[3])
             dst_x.append(i / dst_rect[3])
 
@@ -138,12 +133,8 @@ def triangulation_warping(src, dst, dst_copy, src_hull, dst_hull):
     # delaunay triangulation for convex hull
     del_tri = delaunay_triangle(dst, dst_hull)
     # apply affine transformation to delaunay triangles
-    for dt in del_tri:
-        del_tri1 = []
-        del_tri2 = []
-        
-        for i in range(3):
-            del_tri1.append(src_hull[dt[i]])
-            del_tri2.append(dst_hull[dt[i]])
+    for (dt1, dt2, dt3) in del_tri:
+        del_tri1 = [src_hull[dt1], src_hull[dt2], src_hull[dt3]]
+        del_tri2 = [dst_hull[dt1], dst_hull[dt2], dst_hull[dt3]]
         warpTriangle(src, dst_copy, del_tri1, del_tri2)
     return dst_copy

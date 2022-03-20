@@ -61,21 +61,26 @@ def blend(warped_img, dst_img, dst_hull):
     
     mask = np.zeros_like(dst_img)
     cv2.fillConvexPoly(mask, np.int32(hull), (255, 255, 255))
-    # r = cv2.boundingRect(np.float32([hull]))
-    # center = ((r[0] + int(r[2]/2), r[1] + int(r[3]/2)))
+    # shrink mask to fit the face
+    kernel = np.ones((6, 6))
+    mask = cv2.erode(mask, kernel)
     (x, y, w, h) = cv2.boundingRect(np.float32([hull]))
     dst_face_center = (int((x + x + w)/2), int((y + y + h)/2))
 
     output = cv2.seamlessClone(np.uint8(warped_img), dst_img, mask, dst_face_center, cv2.NORMAL_CLONE)
 
+    # motion filtering using bilateral filter
+    face = output[y:y+h, x:x+w]
+    output[y:y+h, x:x+w] = cv2.bilateralFilter(face, 9, 75, 75)
+
     return output
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--method', default='Tri', type=str, help='Tri, TPS, PRNet')
-    parser.add_argument('--videopath', default='./Data/Data3.mp4', help='path of the video')
+    parser.add_argument('--method', default='PRNet', type=str, help='Tri, TPS, PRNet')
+    parser.add_argument('--videopath', default='./Data/Data1.mp4', help='path of the video')
     parser.add_argument('--facepath', default='./TestSet/Rambo.jpg', help='path of the celebrity face to swap')
-    parser.add_argument('--twofaces', default=True, type=bool, help='swap two faces in video')
+    parser.add_argument('--twofaces', default=False, type=lambda x: bool(int(x)), help='swap two faces in video')
     Args = parser.parse_args()
     method = Args.method
     twofaces = Args.twofaces
@@ -92,7 +97,7 @@ def main():
                             cv2.VideoWriter_fourcc(*'mp4v'), 
                             20, (frame_width, frame_height)) 
     face_img = cv2.imread(face_img_path)
-    count = 0
+    
     if(not twofaces):
         if method != 'PRNet':
             _, face1_pts = facial_landmark(face_img)
@@ -113,12 +118,10 @@ def main():
                 else:
                     pos = prn.process(frame)
                     ref_pos = prn.process(face_img)
-
                     if pos is None:
                         if prev_pos is not None:
                             pos = prev_pos
                         else:
-                            print("Frame " + count + ": No Faces Found !!!")
                             res = frame
                     if pos is not None:
                         res = deep_learning(prn, pos, ref_pos, frame, face_img)
@@ -142,7 +145,6 @@ def main():
                 if(method != 'PRNet'):
                     num_faces, twoface_pts = twofaces_detection(frame)
                     if(num_faces != 2):
-                        print("Frame " + count + ": Not able to find two faces in video !!!")
                         continue
                     else:
                         face1_pts = twoface_pts[0]
@@ -163,7 +165,7 @@ def main():
                         tmp = deep_learning(prn, pose1, pose2, frame, frame)
                         res = deep_learning(prn, pose2, pose1, tmp, frame)
                     else:
-                        pos = prev_pos
+                        res = prev_pos
                     cv2.imshow('r', res)
                     result.write(res)
                     if cv2.waitKey(25) & 0xFF == ord('q'):
